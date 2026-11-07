@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.filedialog import askopenfilenames
 
-# ---------- Conversion logic ----------
+# converter logic
 
 def parse_lrc_timestamp(timestamp):
     try:
@@ -51,7 +51,7 @@ def lrc_to_srt(lrc_file_path, srt_file_path):
         f.write("\n".join(blocks))
 
 
-# ---------- OS helpers ----------
+# os helper
 
 def open_with_default_app(path):
     if sys.platform.startswith('win'):
@@ -72,7 +72,7 @@ def show_in_folder(path):
         subprocess.run(['xdg-open', os.path.dirname(path)])
 
 
-# ---------- UI ----------
+# user interface windows
 
 BG = "#f3f4f8"
 CARD = "#ffffff"
@@ -84,8 +84,9 @@ MUTED = "#6b7280"
 OK = "#16a34a"
 ERR = "#dc2626"
 BORDER = "#e5e7eb"
+SELECT = "#c7d2fe"
 
-FONT = "Segoe UI" if sys.platform.startswith('win') else " "
+FONT = "Segoe UI" if sys.platform.startswith('win') else "Helvetica"
 
 
 class App:
@@ -94,8 +95,8 @@ class App:
         self.srt_paths = {}  # tree item id -> srt path
 
         root.title("LRC2SRT Converter")
-        root.geometry("460x520")
-        root.minsize(480, 460)
+        root.geometry("560x760")
+        root.minsize(480, 500)
         root.configure(bg=BG)
 
         self.open_after = tk.BooleanVar(value=False)
@@ -126,6 +127,13 @@ class App:
         s.map("Accent.TButton",
               background=[("pressed", ACCENT_PRESSED), ("active", ACCENT_HOVER)])
 
+        s.configure("Secondary.TButton", background=CARD, foreground=TEXT,
+                    font=(FONT, 10), padding=(12, 8), bordercolor=BORDER,
+                    lightcolor=CARD, darkcolor=CARD, focusthickness=0)
+        s.map("Secondary.TButton",
+              background=[("disabled", BG), ("pressed", BORDER), ("active", "#eef2ff")],
+              foreground=[("disabled", "#9ca3af")])
+
         s.configure("Card.TCheckbutton", background=CARD, foreground=TEXT,
                     font=(FONT, 10), focusthickness=0)
         s.map("Card.TCheckbutton", background=[("active", CARD)])
@@ -137,9 +145,9 @@ class App:
                     font=(FONT, 9, "bold"), borderwidth=0, relief="flat",
                     padding=(8, 6))
         s.map("Treeview.Heading", background=[("active", CARD)])
-        s.map("Treeview", background=[("selected", "#eef2ff")],
+        s.map("Treeview",
+              background=[("selected", SELECT)],
               foreground=[("selected", TEXT)])
-        s.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
 
         s.configure("Vertical.TScrollbar", background=BORDER, troughcolor=CARD,
                     borderwidth=0, arrowsize=12)
@@ -160,7 +168,7 @@ class App:
         # Results card
         results = tk.Frame(outer, bg=CARD, highlightbackground=BORDER,
                            highlightthickness=1)
-        results.pack(fill="both", expand=True, pady=(16, 12))
+        results.pack(fill="both", expand=True, pady=(16, 8))
 
         self.tree = ttk.Treeview(results, columns=("file", "status"),
                                  show="headings", selectmode="browse")
@@ -175,18 +183,41 @@ class App:
         self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
-        self.tree.bind("<Double-1>", self.on_row_double_click)
 
-        # Empty-state hint
+        # Interaction: selection, double-click, Enter, right-click
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self.update_buttons())
+        self.tree.bind("<Double-1>", self.on_double_click)
+        self.tree.bind("<Return>", lambda e: self.show_selected())
+        right_click = "<Button-2>" if sys.platform == "darwin" else "<Button-3>"
+        self.tree.bind(right_click, self.on_right_click)
+
+        self.menu = tk.Menu(self.root, tearoff=0)
+        self.menu.add_command(label="Show in folder", command=self.show_selected)
+        self.menu.add_command(label="Open file", command=self.open_selected)
+
+        # Empty-state hint (hidden after the first conversion)
         self.hint = tk.Label(results, bg=CARD, fg=MUTED, font=(FONT, 10),
                              text="Converted files will appear here.\n"
-                                  "Double-click a row to show it in its folder.")
+                                  "Select a row, then use the buttons below.")
         self.hint.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Row actions
+        actions = ttk.Frame(outer)
+        actions.pack(fill="x", pady=(0, 12))
+        self.btn_show = ttk.Button(actions, text="Show in folder",
+                                   style="Secondary.TButton",
+                                   command=self.show_selected, cursor="hand2")
+        self.btn_show.pack(side="left", padx=(0, 8))
+        self.btn_open = ttk.Button(actions, text="Open file",
+                                   style="Secondary.TButton",
+                                   command=self.open_selected, cursor="hand2")
+        self.btn_open.pack(side="left")
+        self.update_buttons()
 
         # Options card
         options = ttk.Frame(outer, style="Card.TFrame", padding=(16, 12))
         options.pack(fill="x")
-        ttk.Label(options, text="AFTER CONVERTING", style="CardTitle.TLabel").pack(
+        ttk.Label(options, text="After Converting", style="CardTitle.TLabel").pack(
             anchor="w", pady=(0, 6))
         ttk.Checkbutton(options, text="Show .srt location in folder",
                         variable=self.show_folder,
@@ -199,14 +230,57 @@ class App:
         self.status = ttk.Label(outer, text="Ready", style="Status.TLabel")
         self.status.pack(anchor="w", pady=(12, 0))
 
-    def on_row_double_click(self, event):
+    # ----- row interaction -----
+
+    def selected_path(self):
+        sel = self.tree.selection()
+        if not sel:
+            return None
+        return self.srt_paths.get(sel[0])
+
+    def update_buttons(self):
+        state = "!disabled" if self.selected_path() else "disabled"
+        self.btn_show.state([state])
+        self.btn_open.state([state])
+
+    def show_selected(self):
+        path = self.selected_path()
+        if not path:
+            return
+        if not os.path.exists(path):
+            self.status.config(text="File no longer exists.")
+            return
+        try:
+            show_in_folder(path)
+        except Exception as e:
+            self.status.config(text=f"Can't open folder: {e}")
+
+    def open_selected(self):
+        path = self.selected_path()
+        if not path:
+            return
+        if not os.path.exists(path):
+            self.status.config(text="File no longer exists.")
+            return
+        try:
+            open_with_default_app(path)
+        except Exception as e:
+            self.status.config(text=f"Can't open file: {e}")
+
+    def on_double_click(self, event):
         iid = self.tree.identify_row(event.y)
-        path = self.srt_paths.get(iid)
-        if path and os.path.exists(path):
-            try:
-                show_in_folder(path)
-            except Exception as e:
-                self.status.config(text=f"Can't open folder: {e}")
+        if iid:
+            self.tree.selection_set(iid)
+            self.show_selected()
+
+    def on_right_click(self, event):
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            self.tree.selection_set(iid)
+            if self.selected_path():
+                self.menu.tk_popup(event.x_root, event.y_root)
+
+    # ----- conversion -----
 
     def convert(self):
         files = askopenfilenames(
@@ -217,7 +291,6 @@ class App:
         if not files:
             return
 
-        # Reset results
         self.tree.delete(*self.tree.get_children())
         self.srt_paths.clear()
         self.hint.place_forget()
@@ -238,6 +311,13 @@ class App:
                     msg = msg[:37] + "..."
                 self.tree.insert("", "end", values=(name, f"✗ {msg}"),
                                  tags=("err",))
+
+        # Pre-select the first converted row so the buttons are ready to use
+        if self.srt_paths:
+            first = next(iter(self.srt_paths))
+            self.tree.selection_set(first)
+            self.tree.focus(first)
+        self.update_buttons()
 
         failed = len(files) - len(converted)
         text = f"Converted {len(converted)} of {len(files)} file(s)"
@@ -268,7 +348,7 @@ class App:
 if __name__ == "__main__":
     if sys.platform.startswith('win'):
         try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp text on high-DPI screens
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
 
