@@ -1,5 +1,7 @@
 import os
 import re
+import subprocess
+import sys
 import tkinter as tk
 from tkinter import messagebox
 from tkinter.filedialog import askopenfilenames
@@ -47,12 +49,35 @@ def lrc_to_srt(lrc_file_path, srt_file_path):
         f.write("\n".join(blocks))
 
 
+def open_with_default_app(path):
+    if sys.platform.startswith('win'):
+        os.startfile(path)
+    elif sys.platform == 'darwin':
+        subprocess.run(['open', path])
+    else:
+        subprocess.run(['xdg-open', path])
+
+
+def show_in_folder(path):
+    """Open the folder containing the file, with the file highlighted where supported."""
+    path = os.path.normpath(path)
+    if sys.platform.startswith('win'):
+        subprocess.Popen(['explorer', '/select,', path])  # explorer returns exit code 1 normally
+    elif sys.platform == 'darwin':
+        subprocess.run(['open', '-R', path])  # reveal in Finder
+    else:
+        subprocess.run(['xdg-open', os.path.dirname(path)])
+
+
 class App:
     def __init__(self, root):
         self.root = root
         root.title("LRC → SRT")
-        root.geometry("260x130")
+        root.geometry("300x210")
         root.resizable(False, False)
+
+        self.open_after = tk.BooleanVar(value=False)
+        self.show_folder = tk.BooleanVar(value=True)
 
         self.button = tk.Button(
             root,
@@ -60,10 +85,17 @@ class App:
             font=("Segoe UI", 11),
             command=self.convert,
         )
-        self.button.pack(expand=True, ipadx=12, ipady=8, pady=(20, 6))
+        self.button.pack(ipadx=12, ipady=8, pady=(20, 10))
+
+        tk.Checkbutton(
+            root, text="Open .srt after converting", variable=self.open_after
+        ).pack(anchor="w", padx=40)
+        tk.Checkbutton(
+            root, text="Show .srt location in folder", variable=self.show_folder
+        ).pack(anchor="w", padx=40)
 
         self.status = tk.Label(root, text="", fg="gray")
-        self.status.pack(pady=(0, 10))
+        self.status.pack(pady=(10, 10))
 
     def convert(self):
         files = askopenfilenames(
@@ -74,18 +106,39 @@ class App:
         if not files:
             return
 
-        done, failed = 0, []
+        converted, failed = [], []
         for lrc_path in files:
             srt_path = os.path.splitext(lrc_path)[0] + '.srt'
             try:
                 lrc_to_srt(lrc_path, srt_path)
-                done += 1
+                converted.append(srt_path)
             except Exception as e:
                 failed.append(f"{os.path.basename(lrc_path)}: {e}")
 
-        self.status.config(text=f"Converted {done} of {len(files)} file(s)")
+        self.status.config(text=f"Converted {len(converted)} of {len(files)} file(s)")
+
         if failed:
             messagebox.showerror("Some files failed", "\n".join(failed))
+
+        if converted and self.show_folder.get():
+            # One window per folder, not one per file
+            seen_folders = set()
+            for path in converted:
+                folder = os.path.dirname(path)
+                if folder in seen_folders:
+                    continue
+                seen_folders.add(folder)
+                try:
+                    show_in_folder(path)
+                except Exception as e:
+                    messagebox.showerror("Can't open folder", f"{folder}\n\n{e}")
+
+        if converted and self.open_after.get():
+            for path in converted:
+                try:
+                    open_with_default_app(path)
+                except Exception as e:
+                    messagebox.showerror("Can't open file", f"{path}\n\n{e}")
 
 
 if __name__ == "__main__":
