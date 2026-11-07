@@ -2,6 +2,17 @@
 
 LRC to SRT Converter is a Python script that allows you to convert .lrc (Lyrics File) subtitle files to .srt (SubRip) format. This script automates the process of converting subtitles, making it easier to work with different subtitle formats.
 
+but.. you've got an upgrade :D
+its windowed now! forked from 
+
+```
+https://github.com/HUYDGD/lrc2srt
+```
+
+## Image
+
+![image](images/Screenshot-2026-11-07111711.png)
+
 ## Features
 
 - Converts .lrc subtitle files to .srt format.
